@@ -1,5 +1,6 @@
 """Common validation functions for DataFrame schema checking."""
 
+from datetime import date, datetime, timedelta
 from typing import Annotated, get_args, get_origin, get_type_hints
 
 import pandas as pd
@@ -9,6 +10,9 @@ TYPE_CHECKERS = {
     float: pd.api.types.is_float_dtype,
     str: pd.api.types.is_string_dtype,
     bool: pd.api.types.is_bool_dtype,
+    datetime: pd.api.types.is_datetime64_any_dtype,
+    date: pd.api.types.is_datetime64_any_dtype,
+    timedelta: pd.api.types.is_timedelta64_dtype,
 }
 
 

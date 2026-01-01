@@ -1,5 +1,6 @@
 """Common validation functions for Polars DataFrame schema checking."""
 
+from datetime import date, datetime, timedelta
 from typing import Annotated, get_args, get_origin, get_type_hints
 
 try:
@@ -7,12 +8,25 @@ try:
 except ImportError:
     raise ImportError("Polars is not installed. Install it with: pip install patrol[polars]")
 
+
+def _is_datetime_dtype(dtype):
+    """Check if dtype is a Datetime type (with any time unit)."""
+    if dtype == pl.Datetime:
+        return True
+    if hasattr(dtype, "time_unit"):
+        return True
+    return False
+
+
 TYPE_CHECKERS = {
     int: lambda dtype: dtype
     in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64),
     float: lambda dtype: dtype in (pl.Float32, pl.Float64),
     str: lambda dtype: dtype == pl.Utf8,
     bool: lambda dtype: dtype == pl.Boolean,
+    datetime: _is_datetime_dtype,
+    date: lambda dtype: dtype == pl.Date,
+    timedelta: lambda dtype: dtype == pl.Duration,
 }
 
 
