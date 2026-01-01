@@ -1,7 +1,6 @@
 """Polars backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
-from typing import Optional
-from typing import Generic, TypeVar, get_type_hints
+from typing import Annotated, Generic, Optional, TypeVar, get_args, get_origin, get_type_hints
 
 try:
     import polars as pl
@@ -34,11 +33,31 @@ def validate_dataframe(df: pl.DataFrame, schema: type) -> None:
         ValueError: If a required column is missing or type is unsupported
         TypeError: If a column has the wrong type
     """
-    expected_cols = get_type_hints(schema)
+    expected_cols = get_type_hints(schema, include_extras=True)
 
     for col_name, col_type in expected_cols.items():
         _check_column_exists(df, col_name)
         _check_column_type(df, col_name, col_type)
+
+
+def _extract_type_and_validators(annotation: type) -> tuple[type, list]:
+    """
+    Extract base type and validators from a type annotation.
+
+    Args:
+        annotation: Type annotation (e.g., int or Annotated[int, Range(0, 100)])
+
+    Returns:
+        Tuple of (base_type, validators)
+        - For Annotated[int, Range(0, 100)]: (int, [Range(0, 100)])
+        - For int: (int, [])
+    """
+    if get_origin(annotation) is Annotated:
+        args = get_args(annotation)
+        base_type = args[0]
+        validators = list(args[1:])
+        return base_type, validators
+    return annotation, []
 
 
 def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
@@ -48,14 +67,21 @@ def _check_column_exists(df: pl.DataFrame, col_name: str) -> None:
 
 
 def _check_column_type(df: pl.DataFrame, col_name: str, expected_type: type) -> None:
-    """Check if a column has the expected type."""
-    if expected_type not in TYPE_CHECKERS:
-        raise ValueError(f"Unsupported type: {expected_type}")
+    """Check if a column has the expected type and apply validators."""
+    from patrol._polars.validator_impl import apply_validator
 
-    type_checker = TYPE_CHECKERS[expected_type]
+    base_type, validators = _extract_type_and_validators(expected_type)
+
+    if base_type not in TYPE_CHECKERS:
+        raise ValueError(f"Unsupported type: {base_type}")
+
+    type_checker = TYPE_CHECKERS[base_type]
     col_dtype = df[col_name].dtype
     if not type_checker(col_dtype):
-        raise TypeError(f"Column '{col_name}' expected {expected_type.__name__}, got {col_dtype}")
+        raise TypeError(f"Column '{col_name}' expected {base_type.__name__}, got {col_dtype}")
+
+    for validator in validators:
+        apply_validator(df[col_name], validator, col_name)
 
 
 class DataFrame(pl.DataFrame, Generic[SchemaT_co]):

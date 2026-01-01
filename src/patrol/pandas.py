@@ -1,7 +1,6 @@
 """Pandas backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
-from typing import Optional
-from typing import Generic, TypeVar
+from typing import Generic, Optional, TypeVar
 
 import pandas as pd
 
