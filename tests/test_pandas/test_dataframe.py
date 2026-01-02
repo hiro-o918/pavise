@@ -1,10 +1,11 @@
 from datetime import date, datetime, timedelta
-from typing import Optional, Protocol
+from typing import Annotated, Optional, Protocol
 
 import pandas as pd
 import pytest
 
 from patrol.pandas import DataFrame
+from patrol.validators import Range, Unique
 
 
 class SimpleSchema(Protocol):
@@ -198,3 +199,153 @@ def test_dataframe_pandas_dtype_raises_on_wrong_type():
     df = pd.DataFrame({"category": ["A", "B", "A"], "value": [1, 2, 3]})
     with pytest.raises(TypeError, match="Column 'category' expected CategoricalDtype"):
         DataFrame[PandasDtypeSchema](df)
+
+
+class IndexIntSchema(Protocol):
+    __index__: int
+    value: float
+
+
+def test_dataframe_with_index_type_validates_correct_index():
+    """DataFrame[Schema](df) passes validation for correct index type"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=[0, 1, 2])
+    result = DataFrame[IndexIntSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_index_type_raises_on_wrong_type():
+    """DataFrame[Schema](df) raises error for wrong index type"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=["a", "b", "c"])
+    with pytest.raises(TypeError, match="Index expected int"):
+        DataFrame[IndexIntSchema](df)
+
+
+class IndexWithNameSchema(Protocol):
+    __index__: Annotated[int, "user_id"]
+    value: float
+
+
+def test_dataframe_with_index_name_validates_correct_index():
+    """DataFrame[Schema](df) passes validation for correct index name"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=pd.Index([0, 1, 2], name="user_id"))
+    result = DataFrame[IndexWithNameSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_index_name_raises_on_wrong_name():
+    """DataFrame[Schema](df) raises error for wrong index name"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=pd.Index([0, 1, 2], name="id"))
+    with pytest.raises(ValueError, match="Index name expected 'user_id', got 'id'"):
+        DataFrame[IndexWithNameSchema](df)
+
+
+def test_dataframe_with_index_name_raises_on_missing_name():
+    """DataFrame[Schema](df) raises error when index name is None"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=[0, 1, 2])
+    with pytest.raises(ValueError, match="Index name expected 'user_id', got None"):
+        DataFrame[IndexWithNameSchema](df)
+
+
+class MultiIndexSchema(Protocol):
+    __index__: tuple[str, int]
+    value: float
+
+
+def test_dataframe_with_multiindex_validates_correct_types():
+    """DataFrame[Schema](df) passes validation for correct MultiIndex types"""
+    df = pd.DataFrame(
+        {"value": [1.0, 2.0, 3.0]},
+        index=pd.MultiIndex.from_tuples([("a", 0), ("b", 1), ("c", 2)]),
+    )
+    result = DataFrame[MultiIndexSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_multiindex_raises_on_wrong_type():
+    """DataFrame[Schema](df) raises error for wrong MultiIndex type"""
+    df = pd.DataFrame(
+        {"value": [1.0, 2.0, 3.0]},
+        index=pd.MultiIndex.from_tuples([(0, 0), (1, 1), (2, 2)]),
+    )
+    with pytest.raises(TypeError, match="Index level 0 expected str"):
+        DataFrame[MultiIndexSchema](df)
+
+
+def test_dataframe_with_multiindex_raises_on_single_index():
+    """DataFrame[Schema](df) raises error when MultiIndex expected but got single index"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=[0, 1, 2])
+    with pytest.raises(TypeError, match="Expected MultiIndex with 2 levels, got Index"):
+        DataFrame[MultiIndexSchema](df)
+
+
+class MultiIndexWithNamesSchema(Protocol):
+    __index__: Annotated[tuple[str, int], ("region", "user_id")]
+    value: float
+
+
+def test_dataframe_with_multiindex_names_validates_correct_names():
+    """DataFrame[Schema](df) passes validation for correct MultiIndex names"""
+    df = pd.DataFrame(
+        {"value": [1.0, 2.0, 3.0]},
+        index=pd.MultiIndex.from_tuples(
+            [("a", 0), ("b", 1), ("c", 2)], names=["region", "user_id"]
+        ),
+    )
+    result = DataFrame[MultiIndexWithNamesSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_multiindex_raises_on_wrong_names():
+    """DataFrame[Schema](df) raises error for wrong MultiIndex names"""
+    df = pd.DataFrame(
+        {"value": [1.0, 2.0, 3.0]},
+        index=pd.MultiIndex.from_tuples([("a", 0), ("b", 1), ("c", 2)], names=["area", "id"]),
+    )
+    with pytest.raises(
+        ValueError, match="Index names expected \\('region', 'user_id'\\), got \\('area', 'id'\\)"
+    ):
+        DataFrame[MultiIndexWithNamesSchema](df)
+
+
+class IndexWithValidatorSchema(Protocol):
+    __index__: Annotated[int, Range(0, 10)]
+    value: float
+
+
+def test_dataframe_with_index_validator_passes_validation():
+    """DataFrame[Schema](df) passes validation when index values satisfy validator"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=[0, 5, 10])
+    result = DataFrame[IndexWithValidatorSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_index_validator_raises_on_invalid_value():
+    """DataFrame[Schema](df) raises error when index value violates validator"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=[0, 5, 15])
+    with pytest.raises(ValueError, match="values must be in"):
+        DataFrame[IndexWithValidatorSchema](df)
+
+
+class IndexWithNameAndValidatorSchema(Protocol):
+    __index__: Annotated[int, "user_id", Range(0, 100), Unique()]
+    value: float
+
+
+def test_dataframe_with_index_name_and_validator_passes():
+    """DataFrame[Schema](df) passes validation with both name and validators"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=pd.Index([0, 50, 100], name="user_id"))
+    result = DataFrame[IndexWithNameAndValidatorSchema](df)
+    assert isinstance(result, pd.DataFrame)
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_dataframe_with_index_unique_validator_raises_on_duplicates():
+    """DataFrame[Schema](df) raises error when index has duplicate values"""
+    df = pd.DataFrame({"value": [1.0, 2.0, 3.0]}, index=pd.Index([0, 50, 50], name="user_id"))
+    with pytest.raises(ValueError, match="contains duplicate values"):
+        DataFrame[IndexWithNameAndValidatorSchema](df)
