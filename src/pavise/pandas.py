@@ -1,43 +1,16 @@
 """Pandas backend for type-parameterized DataFrame with Protocol-based schema validation."""
 
-from typing import (
-    Any,
-    Generic,
-    Literal,
-    Optional,
-    TypeVar,
-    Union,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from typing import Any, Generic, Optional, TypeVar
 
 import pandas as pd
 
-from pavise._pandas.validation import INDEX_COLUMN_NAME, validate_dataframe
+from pavise._pandas.spec import get_column_specs
+from pavise._pandas.validation import validate_dataframe
 from pavise.types import NotRequiredColumn
 
 __all__ = ["DataFrame", "NotRequiredColumn"]
 
 SchemaT_co = TypeVar("SchemaT_co", covariant=True)
-
-
-def _get_dtype_for_type(base_type: type) -> Union[str, pd.api.extensions.ExtensionDtype]:
-    """
-    Get pandas dtype for a given Python type.
-
-    Args:
-        base_type: Python type (int, str, float, bool, datetime, date, timedelta)
-
-    Returns:
-        String representation of pandas dtype
-    """
-    from pavise._pandas.validation import TYPE_TO_DTYPE
-
-    if isinstance(base_type, type) and issubclass(base_type, pd.api.extensions.ExtensionDtype):
-        return base_type()
-
-    return TYPE_TO_DTYPE.get(base_type, "object")
 
 
 class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
@@ -91,7 +64,7 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
             validate_dataframe(self, self._schema, strict=strict)
 
     @classmethod
-    def make_empty(cls):
+    def make_empty(cls) -> "DataFrame[SchemaT_co]":
         """
         Create an empty DataFrame with columns from the schema.
 
@@ -101,26 +74,9 @@ class DataFrame(pd.DataFrame, Generic[SchemaT_co]):
         if cls._schema is None:
             return cls({})
 
-        from pavise._pandas.validation import _extract_type_and_validators
-
-        type_hints = get_type_hints(cls._schema, include_extras=True)
-        columns = {}
-
-        for col_name, col_type in type_hints.items():
-            if col_name == INDEX_COLUMN_NAME:
-                continue
-
-            base_type, _validators, is_optional, _is_not_required = _extract_type_and_validators(
-                col_type
-            )
-
-            if get_origin(base_type) is Literal:
-                literal_values = get_args(base_type)
-                if literal_values:
-                    first_value = literal_values[0]
-                    base_type = type(first_value)
-
-            dtype = _get_dtype_for_type(base_type)
-            columns[col_name] = pd.Series([], dtype=dtype)
+        column_specs = get_column_specs(cls._schema)
+        columns = {
+            col_name: pd.Series([], dtype=spec.dtype) for col_name, spec in column_specs.items()
+        }
 
         return cls(columns)
